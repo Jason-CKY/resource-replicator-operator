@@ -10,4 +10,14 @@ plugins:
   scorecard.sdk.operatorframework.io/v2: {}
 projectName: resource-replicator-operator
 repo: github.com/jason-cky/resource-replicator-operator
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: replicator
+  group: apps
+  kind: ConfigMapSync
+  path: github.com/jason-cky/resource-replicator-operator/api/v1
+  version: v1
 version: "3"

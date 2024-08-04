@@ -25,18 +25,17 @@ import (
 
 // ConfigMapSyncSpec defines the desired state of ConfigMapSync
 type ConfigMapSyncSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	SourceNamespace      string `json:"sourceNamespace"`
+	// the source namespace to replicate from
+	SourceNamespace string `json:"sourceNamespace"`
+	// the destination namespace to replicate to.
+	// this can be by name or by regular expression
 	DestinationNamespace string `json:"destinationNamespace"`
-	ConfigMapName        string `json:"configMapName"`
+	// the name of the configmap to replicate
+	ConfigMapName string `json:"configMapName"`
 }
 
 // ConfigMapSyncStatus defines the observed state of ConfigMapSync
 type ConfigMapSyncStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 	LastSyncTime metav1.Time `json:"lastSyncTime"`
 }
 

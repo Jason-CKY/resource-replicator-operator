@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "github.com/jason-cky/resource-replicator-operator/api/v1"
+	"github.com/jason-cky/resource-replicator-operator/internal/utils"
 	kcorev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -55,6 +56,57 @@ var (
 //+kubebuilder:rbac:groups="",resources=configmaps/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups="",resources=configmaps/finalizers,verbs=update
 
+func (r *ConfigMapSyncReconciler) getAllNamespaces(ctx context.Context) (kcorev1.NamespaceList, error) {
+	var allNamespaces kcorev1.NamespaceList
+	if err := r.List(ctx, &allNamespaces, &client.ListOptions{}); err != nil {
+		return allNamespaces, err
+	}
+
+	return allNamespaces, nil
+}
+
+func (r *ConfigMapSyncReconciler) upsertDestinationConfigMap(
+	ctx context.Context,
+	req ctrl.Request,
+	destinationConfigMapName types.NamespacedName,
+	sourceConfigMap *kcorev1.ConfigMap,
+	configMapSync *appsv1.ConfigMapSync,
+) error {
+	log := log.FromContext(ctx)
+	destinationConfigMap := &kcorev1.ConfigMap{}
+	if err := r.Get(ctx, destinationConfigMapName, destinationConfigMap); err != nil {
+		if errors.IsNotFound(err) {
+			log.Info("Creating ConfigMap in destination namespace", "Namespace", destinationConfigMapName.Namespace)
+			destinationConfigMap = &kcorev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      configMapSync.Spec.ConfigMapName,
+					Namespace: destinationConfigMapName.Namespace,
+				},
+				Data: sourceConfigMap.Data, // Copy data from source to destination
+			}
+			if err := r.Create(ctx, destinationConfigMap); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	} else {
+		log.Info("Updating ConfigMap in destination namespace", "Namespace", destinationConfigMapName.Namespace)
+		destinationConfigMap.Data = sourceConfigMap.Data // Update data from source to destination
+		if err := r.Update(ctx, destinationConfigMap); err != nil {
+			return err
+		}
+	}
+	// set owner reference to destination configmap
+	destinationConfigMap.SetLabels(map[string]string{
+		labelKey: fmt.Sprintf("%v.%v", req.Namespace, req.Name),
+	})
+	if err := r.Update(ctx, destinationConfigMap); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // Modify the Reconcile function to compare the state specified by
@@ -65,12 +117,20 @@ var (
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.17.3/pkg/reconcile
 func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := log.FromContext(ctx)
-
 	// Get the ConfigMapSync object
 	configMapSync := &appsv1.ConfigMapSync{}
 	if err := r.Get(ctx, req.NamespacedName, configMapSync); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	allNamespaces, err := r.getAllNamespaces(ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	destinationNamespaces, err := utils.GetReplicateNamespaces(&allNamespaces, configMapSync.Spec.DestinationNamespace)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// List all configmaps that are controlled by this configmapsync object
@@ -102,9 +162,10 @@ func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	// delete all uncontrolled configmaps
+	// this can occur when the ConfigMapSync.Spec.destinationNamespace is patched
 	for _, controlledConfigMap := range controlledConfigMaps.Items {
-		if controlledConfigMap.Namespace != configMapSync.Spec.SourceNamespace && controlledConfigMap.Namespace != configMapSync.Spec.DestinationNamespace {
-			// delete uncontrolled namespace
+		if controlledConfigMap.Namespace != configMapSync.Spec.SourceNamespace && !utils.NameInStringArray(controlledConfigMap.Namespace, destinationNamespaces) {
 			if err := r.Delete(ctx, &controlledConfigMap); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -112,40 +173,17 @@ func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// replicate source configmap to destination namespace
-	destinationConfigMap := &kcorev1.ConfigMap{}
-	destinationConfigMapName := types.NamespacedName{
-		Namespace: configMapSync.Spec.DestinationNamespace,
-		Name:      configMapSync.Spec.ConfigMapName,
-	}
-	if err := r.Get(ctx, destinationConfigMapName, destinationConfigMap); err != nil {
-		if errors.IsNotFound(err) {
-			log.Info("Creating ConfigMap in destination namespace", "Namespace", configMapSync.Spec.DestinationNamespace)
-			destinationConfigMap = &kcorev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      configMapSync.Spec.ConfigMapName,
-					Namespace: configMapSync.Spec.DestinationNamespace,
-				},
-				Data: sourceConfigMap.Data, // Copy data from source to destination
+	for _, destinationNamespace := range destinationNamespaces {
+		if destinationNamespace != configMapSync.Spec.SourceNamespace {
+			destinationConfigMapName := types.NamespacedName{
+				Namespace: destinationNamespace,
+				Name:      configMapSync.Spec.ConfigMapName,
 			}
-			if err := r.Create(ctx, destinationConfigMap); err != nil {
+			err := r.upsertDestinationConfigMap(ctx, req, destinationConfigMapName, sourceConfigMap, configMapSync)
+			if err != nil {
 				return ctrl.Result{}, err
 			}
-		} else {
-			return ctrl.Result{}, err
 		}
-	} else {
-		log.Info("Updating ConfigMap in destination namespace", "Namespace", configMapSync.Spec.DestinationNamespace)
-		destinationConfigMap.Data = sourceConfigMap.Data // Update data from source to destination
-		if err := r.Update(ctx, destinationConfigMap); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-	// set owner reference to destination configmap
-	destinationConfigMap.SetLabels(map[string]string{
-		labelKey: fmt.Sprintf("%v.%v", req.Namespace, req.Name),
-	})
-	if err := r.Update(ctx, destinationConfigMap); err != nil {
-		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
@@ -159,6 +197,9 @@ func (r *ConfigMapSyncReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&kcorev1.ConfigMap{},
 			handler.EnqueueRequestsFromMapFunc(r.mapDestinationConfigMapsToReconcile)).
+		Watches(
+			&kcorev1.Namespace{},
+			handler.EnqueueRequestsFromMapFunc(r.mapNamespaceToReconcile)).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 2}).
 		Complete(r)
 }
@@ -177,4 +218,25 @@ func (r *ConfigMapSyncReconciler) mapDestinationConfigMapsToReconcile(ctx contex
 			NamespacedName: types.NamespacedName{Namespace: configmapsyncNamespace, Name: configmapysyncName},
 		},
 	}
+}
+
+// trigger reconcile on CUD of namespaces
+// for instance, syncing configmaps to new namespaces if destination namespace regex matches
+func (r *ConfigMapSyncReconciler) mapNamespaceToReconcile(ctx context.Context, object client.Object) []reconcile.Request {
+	log := log.FromContext(ctx)
+
+	// Get the ConfigMapSync object
+	var configMapSyncList appsv1.ConfigMapSyncList
+	if err := r.List(ctx, &configMapSyncList, &client.ListOptions{}); err != nil {
+		log.Error(err, "error listing all configmapsyncs")
+		return nil
+	}
+	var reconcileRequests []reconcile.Request
+
+	for _, configMapSync := range configMapSyncList.Items {
+		reconcileRequests = append(reconcileRequests, reconcile.Request{
+			NamespacedName: types.NamespacedName{Namespace: configMapSync.Namespace, Name: configMapSync.Name},
+		})
+	}
+	return reconcileRequests
 }

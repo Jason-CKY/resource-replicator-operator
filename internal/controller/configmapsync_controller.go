@@ -44,12 +44,16 @@ type ConfigMapSyncReconciler struct {
 }
 
 var (
-	labelKey = "configmapsync.controlled-by"
+	labelKey = "configmapsync.replicator/controlled-by"
 )
 
 //+kubebuilder:rbac:groups=apps.replicator,resources=configmapsyncs,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=apps.replicator,resources=configmapsyncs/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=apps.replicator,resources=configmapsyncs/finalizers,verbs=update
+
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=configmaps/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups="",resources=configmaps/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.

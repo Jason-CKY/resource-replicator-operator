@@ -31,6 +31,32 @@ rules:
   - patch
   - update
 - apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - secrets/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - apps.replicator
   resources:
   - configmapsyncs
@@ -52,6 +78,32 @@ rules:
   - apps.replicator
   resources:
   - configmapsyncs/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - apps.replicator
+  resources:
+  - secretsyncs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps.replicator
+  resources:
+  - secretsyncs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - apps.replicator
+  resources:
+  - secretsyncs/status
   verbs:
   - get
   - patch

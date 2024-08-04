@@ -1,4 +1,5 @@
 ## Append samples of your project ##
 resources:
 - apps_v1_configmapsync.yaml
+- apps_v1_secretsync.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples

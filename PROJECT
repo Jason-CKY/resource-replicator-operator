@@ -20,4 +20,13 @@ resources:
   kind: ConfigMapSync
   path: github.com/jason-cky/resource-replicator-operator/api/v1
   version: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: replicator
+  group: apps
+  kind: SecretSync
+  path: github.com/jason-cky/resource-replicator-operator/api/v1
+  version: v1
 version: "3"

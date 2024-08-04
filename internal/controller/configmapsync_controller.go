@@ -97,7 +97,7 @@ func (r *ConfigMapSyncReconciler) upsertDestinationConfigMap(
 			return err
 		}
 	}
-	// set owner reference to destination configmap
+	// set owner labels to destination configmap
 	destinationConfigMap.SetLabels(map[string]string{
 		labelKey: fmt.Sprintf("%v.%v", req.Namespace, req.Name),
 	})
@@ -154,7 +154,7 @@ func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if err := r.Get(ctx, sourceConfigMapName, sourceConfigMap); err != nil {
 		return ctrl.Result{}, err
 	}
-	// Set owner reference to source configmap
+	// Set owner labels to source configmap
 	sourceConfigMap.SetLabels(map[string]string{
 		labelKey: fmt.Sprintf("%v.%v", req.Namespace, req.Name),
 	})
@@ -211,11 +211,11 @@ func (r *ConfigMapSyncReconciler) mapDestinationConfigMapsToReconcile(ctx contex
 		return nil
 	}
 
-	configmapsyncNamespace, configmapysyncName := strings.Split(val, ".")[0], strings.Split(val, ".")[1]
+	configMapSyncNamespace, configMapSyncName := strings.Split(val, ".")[0], strings.Split(val, ".")[1]
 
 	return []reconcile.Request{
 		{
-			NamespacedName: types.NamespacedName{Namespace: configmapsyncNamespace, Name: configmapysyncName},
+			NamespacedName: types.NamespacedName{Namespace: configMapSyncNamespace, Name: configMapSyncName},
 		},
 	}
 }
@@ -228,7 +228,7 @@ func (r *ConfigMapSyncReconciler) mapNamespaceToReconcile(ctx context.Context, o
 	// Get the ConfigMapSync object
 	var configMapSyncList appsv1.ConfigMapSyncList
 	if err := r.List(ctx, &configMapSyncList, &client.ListOptions{}); err != nil {
-		log.Error(err, "error listing all configmapsyncs")
+		log.Error(err, "error listing all configMapSyncs")
 		return nil
 	}
 	var reconcileRequests []reconcile.Request

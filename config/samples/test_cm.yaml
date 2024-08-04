@@ -1,7 +1,7 @@
 apiVersion: v1
 data:
   key: value
+  foo: bar
 kind: ConfigMap
 metadata:
-  creationTimestamp: null
   name: test-cm

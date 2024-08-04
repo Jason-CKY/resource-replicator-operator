@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -43,7 +44,7 @@ type ConfigMapSyncReconciler struct {
 }
 
 var (
-	annotationKey = "configmapsync/controlled-by"
+	labelKey = "configmapsync.controlled-by"
 )
 
 //+kubebuilder:rbac:groups=apps.replicator,resources=configmapsyncs,verbs=get;list;watch;create;update;patch;delete
@@ -61,14 +62,26 @@ var (
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.17.3/pkg/reconcile
 func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
-	log.Info("triggering reconcile loop...")
 
-	// 1. Get the ConfigMapSync object
+	// Get the ConfigMapSync object
 	configMapSync := &appsv1.ConfigMapSync{}
 	if err := r.Get(ctx, req.NamespacedName, configMapSync); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	// 2. Get source configmap
+
+	// List all configmaps that are controlled by this configmapsync object
+	var controlledConfigMaps kcorev1.ConfigMapList
+	labels, err := labels.Parse(fmt.Sprintf("%v=%v.%v", labelKey, req.Namespace, req.Name))
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.List(ctx, &controlledConfigMaps, &client.ListOptions{
+		LabelSelector: labels,
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Get source configmap
 	sourceConfigMap := &kcorev1.ConfigMap{}
 	sourceConfigMapName := types.NamespacedName{
 		Namespace: configMapSync.Spec.SourceNamespace,
@@ -77,15 +90,24 @@ func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if err := r.Get(ctx, sourceConfigMapName, sourceConfigMap); err != nil {
 		return ctrl.Result{}, err
 	}
-	// 3. Set owner reference to source configmap
-	sourceConfigMap.SetAnnotations(map[string]string{
-		"configmapsync/controlled-by": fmt.Sprintf("%v", req.NamespacedName),
+	// Set owner reference to source configmap
+	sourceConfigMap.SetLabels(map[string]string{
+		labelKey: fmt.Sprintf("%v.%v", req.Namespace, req.Name),
 	})
 	if err := r.Update(ctx, sourceConfigMap); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// 4. replicate source configmap to destination namespace
+	for _, controlledConfigMap := range controlledConfigMaps.Items {
+		if controlledConfigMap.Namespace != configMapSync.Spec.SourceNamespace && controlledConfigMap.Namespace != configMapSync.Spec.DestinationNamespace {
+			// delete uncontrolled namespace
+			if err := r.Delete(ctx, &controlledConfigMap); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
+	// replicate source configmap to destination namespace
 	destinationConfigMap := &kcorev1.ConfigMap{}
 	destinationConfigMapName := types.NamespacedName{
 		Namespace: configMapSync.Spec.DestinationNamespace,
@@ -114,9 +136,9 @@ func (r *ConfigMapSyncReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 	}
-	// 5. set owner reference to destination configmap
-	destinationConfigMap.SetAnnotations(map[string]string{
-		annotationKey: fmt.Sprintf("%v", req.NamespacedName),
+	// set owner reference to destination configmap
+	destinationConfigMap.SetLabels(map[string]string{
+		labelKey: fmt.Sprintf("%v.%v", req.Namespace, req.Name),
 	})
 	if err := r.Update(ctx, destinationConfigMap); err != nil {
 		return ctrl.Result{}, err
@@ -139,12 +161,12 @@ func (r *ConfigMapSyncReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *ConfigMapSyncReconciler) mapDestinationConfigMapsToReconcile(ctx context.Context, object client.Object) []reconcile.Request {
 	configmap := object.(*kcorev1.ConfigMap)
-	val, ok := configmap.Annotations[annotationKey]
+	val, ok := configmap.Labels[labelKey]
 	if !ok {
 		return nil
 	}
 
-	configmapsyncNamespace, configmapysyncName := strings.Split(val, "/")[0], strings.Split(val, "/")[1]
+	configmapsyncNamespace, configmapysyncName := strings.Split(val, ".")[0], strings.Split(val, ".")[1]
 
 	return []reconcile.Request{
 		{

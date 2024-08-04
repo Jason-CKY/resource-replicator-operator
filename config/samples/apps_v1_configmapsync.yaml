@@ -6,4 +6,6 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: configmapsync-sample
 spec:
-  # TODO(user): Add fields here
+  sourceNamespace: default
+  destinationNamespace: test
+  configMapName: test-cm

@@ -25,40 +25,78 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	appsv1 "github.com/jason-cky/resource-replicator-operator/api/v1"
+	kcorev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var _ = Describe("ConfigMapSync Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+	// Define utility constants for object names and testing timeouts/durations and intervals.
+	const (
+		ConfigMapSyncName      = "test-configmapsync"
+		ConfigMapSyncNamespace = "source"
+		ConfigMapName          = "test-cm"
 
+		SourceNamespace      = "source"
+		DestinationNamespace = "test"
+	)
+	configmapData := map[string]string{
+		"key": "value",
+		"foo": "bar",
+	}
+	Context("When reconciling a resource", func() {
 		ctx := context.Background()
 
+		// setup: create ns (default and test)
+		sourceNamespace := &kcorev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: SourceNamespace}}
+		destinationNamespace := &kcorev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: DestinationNamespace}}
+
+		// setup: create configmap with test data
+		configmap := &kcorev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      ConfigMapName,
+				Namespace: SourceNamespace,
+			},
+			Data: configmapData,
+		}
+
 		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+			Name:      ConfigMapSyncName,
+			Namespace: ConfigMapSyncNamespace, // (user):Modify as needed
 		}
 		configmapsync := &appsv1.ConfigMapSync{}
 
 		BeforeEach(func() {
 			By("creating the custom resource for the Kind ConfigMapSync")
-			err := k8sClient.Get(ctx, typeNamespacedName, configmapsync)
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: SourceNamespace}, sourceNamespace)
+			if err != nil && errors.IsNotFound(err) {
+				Expect(k8sClient.Create(ctx, sourceNamespace)).To(Succeed())
+			}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: DestinationNamespace}, destinationNamespace)
+			if err != nil && errors.IsNotFound(err) {
+				Expect(k8sClient.Create(ctx, destinationNamespace)).To(Succeed())
+			}
+			Expect(k8sClient.Create(ctx, configmap)).To(Succeed())
+			err = k8sClient.Get(ctx, typeNamespacedName, configmapsync)
 			if err != nil && errors.IsNotFound(err) {
 				resource := &appsv1.ConfigMapSync{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
+						Name:      ConfigMapSyncName,
+						Namespace: ConfigMapSyncNamespace,
 					},
-					// TODO(user): Specify other spec details if needed.
+					// (user): Specify other spec details if needed.
+					Spec: appsv1.ConfigMapSyncSpec{
+						SourceNamespace:      SourceNamespace,
+						DestinationNamespace: DestinationNamespace,
+						ConfigMapName:        ConfigMapName,
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
+			// (user): Cleanup logic after each test, like removing the resource instance.
 			resource := &appsv1.ConfigMapSync{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
@@ -77,8 +115,18 @@ var _ = Describe("ConfigMapSync Controller", func() {
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+			// (user): Add more specific assertions depending on your controller's reconciliation logic.
+			// assert that configmap is created in the destination namespace
+			replicatedConfigMap := &kcorev1.ConfigMap{}
+			err = k8sClient.Get(
+				ctx,
+				types.NamespacedName{
+					Name:      ConfigMapName,
+					Namespace: DestinationNamespace, // (user):Modify as needed
+				},
+				replicatedConfigMap)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(replicatedConfigMap.Data).Should(Equal(configmapData))
 		})
 	})
 })

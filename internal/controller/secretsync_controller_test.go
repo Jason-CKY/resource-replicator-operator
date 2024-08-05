@@ -25,40 +25,77 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	appsv1 "github.com/jason-cky/resource-replicator-operator/api/v1"
+	kcorev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var _ = Describe("SecretSync Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+	const (
+		SecretSyncName      = "test-configmapsync"
+		SecretSyncNamespace = "source"
+		SecretName          = "test-cm"
 
+		SourceNamespace      = "source"
+		DestinationNamespace = "test"
+	)
+	secretStringData := map[string]string{
+		"key": "value",
+		"foo": "bar",
+	}
+	Context("When reconciling a resource", func() {
 		ctx := context.Background()
 
+		// setup: create ns (default and test)
+		sourceNamespace := &kcorev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: SourceNamespace}}
+		destinationNamespace := &kcorev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: DestinationNamespace}}
+
+		// setup: create configmap with test data
+		secret := &kcorev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      SecretName,
+				Namespace: SourceNamespace,
+			},
+			StringData: secretStringData,
+		}
+
 		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+			Name:      SecretSyncName,
+			Namespace: SecretSyncNamespace, // (user):Modify as needed
 		}
 		secretsync := &appsv1.SecretSync{}
 
 		BeforeEach(func() {
 			By("creating the custom resource for the Kind SecretSync")
-			err := k8sClient.Get(ctx, typeNamespacedName, secretsync)
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: SourceNamespace}, sourceNamespace)
+			if err != nil && errors.IsNotFound(err) {
+				Expect(k8sClient.Create(ctx, sourceNamespace)).To(Succeed())
+			}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: DestinationNamespace}, destinationNamespace)
+			if err != nil && errors.IsNotFound(err) {
+				Expect(k8sClient.Create(ctx, destinationNamespace)).To(Succeed())
+			}
+			Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+			err = k8sClient.Get(ctx, typeNamespacedName, secretsync)
 			if err != nil && errors.IsNotFound(err) {
 				resource := &appsv1.SecretSync{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
+						Name:      SecretSyncName,
+						Namespace: SecretSyncNamespace,
 					},
-					// TODO(user): Specify other spec details if needed.
+					// (user): Specify other spec details if needed.
+					Spec: appsv1.SecretSyncSpec{
+						SourceNamespace:      SourceNamespace,
+						DestinationNamespace: DestinationNamespace,
+						SecretName:           SecretName,
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
+			// (user): Cleanup logic after each test, like removing the resource instance.
 			resource := &appsv1.SecretSync{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
@@ -77,8 +114,27 @@ var _ = Describe("SecretSync Controller", func() {
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+			// (user): Add more specific assertions depending on your controller's reconciliation logic.
+			// assert that secret is created in the destination namespace
+			originalSecret := &kcorev1.Secret{}
+			replicatedSecret := &kcorev1.Secret{}
+			err = k8sClient.Get(
+				ctx,
+				types.NamespacedName{
+					Name:      SecretName,
+					Namespace: SourceNamespace, // (user):Modify as needed
+				},
+				originalSecret)
+			Expect(err).NotTo(HaveOccurred())
+			err = k8sClient.Get(
+				ctx,
+				types.NamespacedName{
+					Name:      SecretName,
+					Namespace: DestinationNamespace, // (user):Modify as needed
+				},
+				replicatedSecret)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(replicatedSecret.Data).Should(Equal(originalSecret.Data))
 		})
 	})
 })

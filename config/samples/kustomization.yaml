@@ -2,4 +2,7 @@
 resources:
 - apps_v1_configmapsync.yaml
 - apps_v1_secretsync.yaml
+- test_cm.yaml
+- test_secret.yaml
+- namespace.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples

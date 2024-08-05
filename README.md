@@ -9,6 +9,12 @@ The Custom Resource Definitions (CRDs) exposes 2 APIs:
 1. `ConfigMapSync` that syncs your configmaps from `sourceNamespace` to `destinationNamespace`
 1. `SecretSync` that syncs your secrets from `sourceNamespace` to `destinationNamespace`
 
+## Installation
+
+```sh
+kubectl apply -f https://raw.githubusercontent.com/Jason-CKY/resource-replicator-operator/v1.0.0/config/releases/resource-replicator-operator-v1.0.0.yaml
+```
+
 ## Usage
 
 ### Replicates with annotations

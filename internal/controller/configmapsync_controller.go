@@ -212,7 +212,9 @@ func (r *ConfigMapSyncReconciler) mapDestinationConfigMapsToReconcile(ctx contex
 		return nil
 	}
 
-	configMapSyncNamespace, configMapSyncName := strings.Split(val, ".")[0], strings.Split(val, ".")[1]
+	namespaceAndName := strings.Split(val, ".")
+	configMapSyncNamespace := namespaceAndName[0]
+	configMapSyncName := namespaceAndName[1]
 
 	return []reconcile.Request{
 		{

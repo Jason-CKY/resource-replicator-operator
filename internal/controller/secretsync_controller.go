@@ -207,7 +207,9 @@ func (r *SecretSyncReconciler) mapDestinationSecretsToReconcile(ctx context.Cont
 		return nil
 	}
 
-	secretSyncNamespace, secretSyncName := strings.Split(val, ".")[0], strings.Split(val, ".")[1]
+	namespaceAndName := strings.Split(val, ".")
+	secretSyncNamespace := namespaceAndName[0]
+	secretSyncName := namespaceAndName[1]
 
 	return []reconcile.Request{
 		{
